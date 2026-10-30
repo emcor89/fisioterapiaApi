@@ -9,7 +9,9 @@ import {
     cancelAppointment,
     updateAppointmentStatus,
     getMyAppointmentHistory,
-    getMyFutureAppointments
+    getMyFutureAppointments,
+    getPhysiotherapistAppointments,
+    getPhysiotherapistAppointmentSummary
 } from "../controllers/appointment.controller.js";
 
 import authMiddleware from "../middlewares/auth.middleware.js";
@@ -54,7 +56,20 @@ router.get(
     roleMiddleware("paciente"),
     getMyFutureAppointments
 );
-
+//consultar citas del fisio
+router.get(
+    "/fisioterapeuta/mis-citas",
+    authMiddleware,
+    roleMiddleware("fisioterapeuta"),
+    getPhysiotherapistAppointments
+);
+//resumen de mis citas
+router.get(
+    "/fisioterapeuta/resumen",
+    authMiddleware,
+    roleMiddleware("fisioterapeuta"),
+    getPhysiotherapistAppointmentSummary
+);
 // Consultar una cita específica
 router.get(
     "/mis-citas/:id",

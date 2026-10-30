@@ -40,6 +40,22 @@ const appointmentSchema = new mongoose.Schema(
     }
 );
 
+appointmentSchema.index(
+    {
+        fisioterapeuta: 1,
+        fecha: 1,
+        hora: 1
+    },
+    {
+        unique: true,
+        partialFilterExpression: {
+            estado: {
+                $in: ["pendiente", "confirmada"]
+            }
+        }
+    }
+);
+
 const Appointment = mongoose.model(
     "Appointment",
     appointmentSchema

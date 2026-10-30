@@ -1,5 +1,6 @@
 import Availability from "../models/Availability.js";
 import Appointment from "../models/Appointment.js";
+import mongoose from "mongoose";
 
 export const getAvailableHours = async (req, res) => {
     try {
@@ -11,11 +12,31 @@ export const getAvailableHours = async (req, res) => {
             });
         }
 
+        const formatoFecha = /^\d{4}-\d{2}-\d{2}$/;
+
+        if (!formatoFecha.test(fecha)) {
+            return res.status(400).json({
+                message: "La fecha debe tener el formato YYYY-MM-DD"
+            });
+        }
+
         const date = new Date(`${fecha}T00:00:00`);
 
-        if (isNaN(date.getTime())) {
+        if (
+            isNaN(date.getTime()) ||
+            date.toISOString().slice(0, 10) !== fecha
+        ) {
             return res.status(400).json({
                 message: "La fecha no es válida"
+            });
+        }
+
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+
+        if (date < hoy) {
+            return res.status(400).json({
+                message: "No puedes consultar horarios de fechas pasadas"
             });
         }
 
@@ -46,6 +67,11 @@ export const getAvailableHours = async (req, res) => {
         });
 
         const horasOcupadas = citas.map((cita) => cita.hora);
+        const ahora = new Date();
+
+        const esHoy =
+            fecha ===
+            `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}-${String(ahora.getDate()).padStart(2, "0")}`;
 
         const horarios = [];
 
@@ -53,7 +79,17 @@ export const getAvailableHours = async (req, res) => {
             let horaActual = disponibilidad.horaInicio;
 
             while (horaActual < disponibilidad.horaFin) {
-                if (!horasOcupadas.includes(horaActual)) {
+                // if (!horasOcupadas.includes(horaActual)) {
+                //     horarios.push(horaActual);
+                // }
+                const horaEsFutura =
+                    !esHoy ||
+                    horaActual > ahora.toTimeString().slice(0, 5);
+
+                if (
+                    !horasOcupadas.includes(horaActual) &&
+                    horaEsFutura
+                ) {
                     horarios.push(horaActual);
                 }
 
@@ -330,6 +366,7 @@ export const cancelAppointment = async (req, res) => {
 };
 
 //cambiar estados de la cita
+
 export const updateAppointmentStatus = async (req, res) => {
     try {
         const { estado } = req.body;
@@ -358,24 +395,26 @@ export const updateAppointmentStatus = async (req, res) => {
             });
         }
 
-        if (
-            cita.estado === "completada" ||
-            cita.estado === "cancelada"
-        ) {
+        const transicionesPermitidas = {
+            pendiente: ["confirmada", "cancelada"],
+            confirmada: ["completada", "cancelada"],
+            completada: [],
+            cancelada: []
+        };
+
+        if (!transicionesPermitidas[cita.estado]?.includes(estado)) {
             return res.status(400).json({
-                message: `No se puede modificar una cita ${cita.estado}`
+                message: `No se puede cambiar una cita de estado ${cita.estado} a ${estado}`
             });
         }
 
         cita.estado = estado;
-
         await cita.save();
 
         res.json({
             message: "Estado de la cita actualizado correctamente",
             cita
         });
-
     } catch (error) {
         console.error(
             "Error actualizando estado de la cita:",
@@ -452,6 +491,134 @@ export const getMyFutureAppointments = async (req, res) => {
     } catch (error) {
         console.error(
             "Error obteniendo citas futuras:",
+            error
+        );
+
+        res.status(500).json({
+            message: "Error interno del servidor"
+        });
+    }
+};
+
+//ver las citas del fisio
+
+export const getPhysiotherapistAppointments = async (req, res) => {
+    try {
+        const { estado, fecha } = req.query;
+
+        const filtros = {
+            fisioterapeuta: req.usuario.id
+        };
+        if (fecha) {
+            const fechaValida =
+                /^\d{4}-\d{2}-\d{2}$/.test(fecha) &&
+                (() => {
+                    const fechaDate = new Date(`${fecha}T00:00:00Z`);
+
+                    return (
+                        !Number.isNaN(fechaDate.getTime()) &&
+                        fechaDate.toISOString().slice(0, 10) === fecha
+                    );
+                })();
+
+            if (!fechaValida) {
+                return res.status(400).json({
+                    message: "La fecha no es válida. Usa el formato YYYY-MM-DD"
+                });
+            }
+
+            filtros.fecha = fecha;
+        }
+
+        const estadosValidos = [
+            "pendiente",
+            "confirmada",
+            "cancelada",
+            "completada"
+        ];
+
+        if (estado) {
+            if (!estadosValidos.includes(estado)) {
+                return res.status(400).json({
+                    message: "Estado no válido",
+                    estadosPermitidos: estadosValidos
+                });
+            }
+
+            filtros.estado = estado;
+        }
+
+        const citas = await Appointment.find(filtros)
+            .populate("paciente", "nombre correo")
+            .sort({
+                fecha: 1,
+                hora: 1
+            });
+
+        res.json({
+            total: citas.length,
+            citas
+        });
+    } catch (error) {
+        console.error(
+            "Error obteniendo citas del fisioterapeuta:",
+            error
+        );
+
+        res.status(500).json({
+            message: "Error interno del servidor"
+        });
+    }
+};
+
+//resumen de citas 
+
+export const getPhysiotherapistAppointmentSummary = async (req, res) => {
+    try {
+        const fisioterapeutaId = req.usuario.id;
+
+        const resumen = await Appointment.aggregate([
+            {
+                $match: {
+                    fisioterapeuta: new mongoose.Types.ObjectId(
+                        fisioterapeutaId
+                    )
+                }
+            },
+            {
+                $group: {
+                    _id: "$estado",
+                    cantidad: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const resultado = {
+            total: 0,
+            pendientes: 0,
+            confirmadas: 0,
+            canceladas: 0,
+            completadas: 0
+        };
+
+        resumen.forEach((item) => {
+            resultado.total += item.cantidad;
+
+            if (item._id === "pendiente") {
+                resultado.pendientes = item.cantidad;
+            } else if (item._id === "confirmada") {
+                resultado.confirmadas = item.cantidad;
+            } else if (item._id === "cancelada") {
+                resultado.canceladas = item.cantidad;
+            } else if (item._id === "completada") {
+                resultado.completadas = item.cantidad;
+            }
+        });
+
+        res.json(resultado);
+    } catch (error) {
+        console.error(
+            "Error obteniendo resumen de citas:",
             error
         );
 

@@ -2,7 +2,7 @@ import Availability from "../models/Availability.js";
 import Appointment from "../models/Appointment.js";
 import mongoose from "mongoose";
 
-export const getAvailableHours = async (req, res) => {
+export const getAvailableHours = async (req, res, next) => {
     try {
         const { fisioterapeutaId, fecha } = req.query;
 
@@ -116,33 +116,67 @@ export const getAvailableHours = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "Error obteniendo horarios:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //crear cita
-export const createAppointment = async (req, res) => {
+
+export const createAppointment = async (req, res, next) => {
     try {
         const {
             fisioterapeutaId,
             fecha,
             hora
-        } = req.body;
+        } = req.body || {};
 
+        // 1. Validar campos obligatorios
         if (!fisioterapeutaId || !fecha || !hora) {
             return res.status(400).json({
                 message: "Fisioterapeuta, fecha y hora son obligatorios"
             });
         }
 
-        // Verificar que el horario no esté ocupado
+        // 2. Validar formato de fecha
+        const formatoFecha = /^\d{4}-\d{2}-\d{2}$/;
+
+        if (!formatoFecha.test(fecha)) {
+            return res.status(400).json({
+                message: "La fecha debe tener el formato YYYY-MM-DD"
+            });
+        }
+
+        // 3. Validar que la fecha exista realmente
+        const date = new Date(`${fecha}T00:00:00`);
+
+        if (
+            isNaN(date.getTime()) ||
+            date.toISOString().slice(0, 10) !== fecha
+        ) {
+            return res.status(400).json({
+                message: "La fecha no es válida"
+            });
+        }
+
+        // 4. Validar formato de hora
+        const horaValida = /^([01]\d|2[0-3]):00$/.test(hora);
+
+        if (!horaValida) {
+            return res.status(400).json({
+                message: "La hora debe tener formato HH:00"
+            });
+        }
+
+        // 5. Validar que la cita sea futura
+        const fechaHoraCita = new Date(`${fecha}T${hora}:00`);
+
+        if (fechaHoraCita <= new Date()) {
+            return res.status(400).json({
+                message: "No puedes agendar una cita en una fecha u hora pasada"
+            });
+        }
+
+        // 6. Verificar que el horario no esté ocupado
         const citaExiste = await Appointment.findOne({
             fisioterapeuta: fisioterapeutaId,
             fecha,
@@ -158,31 +192,7 @@ export const createAppointment = async (req, res) => {
             });
         }
 
-        // Verificar que el horario realmente esté dentro
-        // de la disponibilidad del fisioterapeuta
-        const date = new Date(`${fecha}T00:00:00`);
-
-        if (isNaN(date.getTime())) {
-            return res.status(400).json({
-                message: "La fecha no es válida"
-            });
-        }
-
-        const fechaHoraCita = new Date(`${fecha}T${hora}:00`);
-
-        if (isNaN(fechaHoraCita.getTime())) {
-            return res.status(400).json({
-                message: "La fecha u hora no son válidas"
-            });
-        }
-
-        if (fechaHoraCita <= new Date()) {
-            return res.status(400).json({
-                message: "No puedes agendar una cita en una fecha u hora pasada"
-            });
-        }
-
-
+        // 7. Obtener el día de la semana
         const diasSemana = [
             "domingo",
             "lunes",
@@ -195,12 +205,14 @@ export const createAppointment = async (req, res) => {
 
         const dia = diasSemana[date.getDay()];
 
+        // 8. Consultar disponibilidad activa del fisioterapeuta
         const disponibilidades = await Availability.find({
             fisioterapeuta: fisioterapeutaId,
             dia,
             activo: true
         });
 
+        // 9. Verificar que la hora esté dentro de la disponibilidad
         let horarioValido = false;
 
         for (const disponibilidad of disponibilidades) {
@@ -219,16 +231,7 @@ export const createAppointment = async (req, res) => {
             });
         }
 
-        const horaValida = /^([01]\d|2[0-3]):00$/.test(hora);
-
-        if (!horaValida) {
-            return res.status(400).json({
-                message: "La hora debe tener formato HH:00"
-            });
-        }
-
-
-        // Crear la cita
+        // 10. Crear la cita
         const cita = await Appointment.create({
             paciente: req.usuario.id,
             fisioterapeuta: fisioterapeutaId,
@@ -236,25 +239,27 @@ export const createAppointment = async (req, res) => {
             hora
         });
 
-        res.status(201).json({
+        return res.status(201).json({
             message: "Cita creada correctamente",
             cita
         });
 
     } catch (error) {
-        console.error(
-            "Error creando cita:",
-            error
-        );
 
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        // Detectar duplicados generados por MongoDB
+        if (error.code === 11000) {
+            return res.status(409).json({
+                message: "Este horario ya está ocupado"
+            });
+        }
+
+        next(error);
     }
 };
 
+
 //ver mis citas
-export const getMyAppointments = async (req, res) => {
+export const getMyAppointments = async (req, res, next) => {
     try {
         const citas = await Appointment.find({
             paciente: req.usuario.id
@@ -273,19 +278,12 @@ export const getMyAppointments = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "Error obteniendo mis citas:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //ver citas
-export const getAppointmentById = async (req, res) => {
+export const getAppointmentById = async (req, res, next) => {
     try {
         const cita = await Appointment.findOne({
             _id: req.params.id,
@@ -306,20 +304,13 @@ export const getAppointmentById = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "Error obteniendo la cita:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //cancelar cita
 
-export const cancelAppointment = async (req, res) => {
+export const cancelAppointment = async (req, res, next) => {
     try {
         const cita = await Appointment.findOne({
             _id: req.params.id,
@@ -354,20 +345,13 @@ export const cancelAppointment = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "Error cancelando la cita:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //cambiar estados de la cita
 
-export const updateAppointmentStatus = async (req, res) => {
+export const updateAppointmentStatus = async (req, res, next) => {
     try {
         const { estado } = req.body;
 
@@ -416,19 +400,12 @@ export const updateAppointmentStatus = async (req, res) => {
             cita
         });
     } catch (error) {
-        console.error(
-            "Error actualizando estado de la cita:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //historial de citas
-export const getMyAppointmentHistory = async (req, res) => {
+export const getMyAppointmentHistory = async (req, res, next) => {
     try {
         const citas = await Appointment.find({
             paciente: req.usuario.id,
@@ -450,19 +427,12 @@ export const getMyAppointmentHistory = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "Error obteniendo historial de citas:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //paciente vea las proximas citas
-export const getMyFutureAppointments = async (req, res) => {
+export const getMyFutureAppointments = async (req, res, next) => {
     try {
         const hoy = new Date().toISOString().split("T")[0];
 
@@ -489,20 +459,13 @@ export const getMyFutureAppointments = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "Error obteniendo citas futuras:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //ver las citas del fisio
 
-export const getPhysiotherapistAppointments = async (req, res) => {
+export const getPhysiotherapistAppointments = async (req, res, next) => {
     try {
         const { estado, fecha } = req.query;
 
@@ -560,20 +523,13 @@ export const getPhysiotherapistAppointments = async (req, res) => {
             citas
         });
     } catch (error) {
-        console.error(
-            "Error obteniendo citas del fisioterapeuta:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //resumen de citas 
 
-export const getPhysiotherapistAppointmentSummary = async (req, res) => {
+export const getPhysiotherapistAppointmentSummary = async (req, res, next) => {
     try {
         const fisioterapeutaId = req.usuario.id;
 
@@ -617,13 +573,6 @@ export const getPhysiotherapistAppointmentSummary = async (req, res) => {
 
         res.json(resultado);
     } catch (error) {
-        console.error(
-            "Error obteniendo resumen de citas:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };

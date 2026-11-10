@@ -1,6 +1,6 @@
 import Availability from "../models/Availability.js";
 
-export const createAvailability = async (req, res) => {
+export const createAvailability = async (req, res, next) => {
     try {
         const { dia, horaInicio, horaFin } = req.body;
 
@@ -73,15 +73,11 @@ export const createAvailability = async (req, res) => {
             disponibilidad
         });
     } catch (error) {
-        console.error("Error creando disponibilidad:", error);
-
-        return res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
-export const getAvailability = async (req, res) => {
+export const getAvailability = async (req, res, next) => {
     try {
         const disponibilidad = await Availability.find({
             fisioterapeuta: req.usuario.id,
@@ -96,19 +92,12 @@ export const getAvailability = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(
-            "Error obteniendo disponibilidad:",
-            error
-        );
-
-        res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //editar horarios de citas
-export const updateAvailability = async (req, res) => {
+export const updateAvailability = async (req, res, next) => {
     try {
         const { id } = req.params;
         const { dia, horaInicio, horaFin } = req.body;
@@ -194,17 +183,13 @@ export const updateAvailability = async (req, res) => {
             disponibilidad
         });
     } catch (error) {
-        console.error("Error actualizando disponibilidad:", error);
-
-        return res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 // desactivar disponibilidad
 
-export const deactivateAvailability = async (req, res) => {
+export const deactivateAvailability = async (req, res, next) => {
     try {
         const { id } = req.params;
 
@@ -228,17 +213,13 @@ export const deactivateAvailability = async (req, res) => {
             disponibilidad
         });
     } catch (error) {
-        console.error("Error desactivando disponibilidad:", error);
-
-        return res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 
 //reactivar horarios de fisioterapeuta
 
-export const activateAvailability = async (req, res) => {
+export const activateAvailability = async (req, res, next) => {
     try {
         const { id } = req.params;
 
@@ -283,11 +264,7 @@ export const activateAvailability = async (req, res) => {
             disponibilidad
         });
     } catch (error) {
-        console.error("Error activando disponibilidad:", error);
-
-        return res.status(500).json({
-            message: "Error interno del servidor"
-        });
+        next(error);
     }
 };
 

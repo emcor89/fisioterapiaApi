@@ -10,11 +10,17 @@ const authMiddleware = (req, res, next) => {
             });
         }
 
-        const token = authHeader.split(" ")[1];
+        const [tipo, token] = authHeader.split(" ");
 
-        if (!token) {
+        if (tipo !== "Bearer" || !token || authHeader.split(" ").length !== 2) {
             return res.status(401).json({
-                message: "Token inválido"
+                message: "Formato de token inválido. Usa Bearer <token>"
+            });
+        }
+
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({
+                message: "Error de configuración del servidor"
             });
         }
 

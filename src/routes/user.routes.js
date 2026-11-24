@@ -1,19 +1,20 @@
 import express from "express";
 import authMiddleware from "../middlewares/auth.middleware.js";
 import roleMiddleware from "../middlewares/role.middleware.js";
-import { getUsers } from "../controllers/user.controller.js";
+import { getUsers, getProfile, updateProfile } from "../controllers/user.controller.js";
 
 const router = express.Router();
 
 router.get(
     "/perfil",
     authMiddleware,
-    (req, res) => {
-        res.json({
-            message: "Acceso autorizado",
-            usuario: req.usuario
-        });
-    }
+    getProfile
+
+);
+router.put(
+    "/perfil",
+    authMiddleware,
+    updateProfile
 );
 
 router.get(

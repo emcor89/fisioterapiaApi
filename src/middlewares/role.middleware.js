@@ -1,5 +1,12 @@
+
 const roleMiddleware = (...rolesPermitidos) => {
     return (req, res, next) => {
+        if (!rolesPermitidos.length) {
+            return res.status(500).json({
+                message: "No se configuraron los roles permitidos"
+            });
+        }
+
         if (!req.usuario) {
             return res.status(401).json({
                 message: "Usuario no autenticado"

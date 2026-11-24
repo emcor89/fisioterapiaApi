@@ -26,7 +26,8 @@ const userSchema = new mongoose.Schema(
         edad: {
             type: Number,
             required: true,
-            min: 1
+            min: 1,
+            max: 120
         },
 
         sexo: {
@@ -38,7 +39,7 @@ const userSchema = new mongoose.Schema(
         password: {
             type: String,
             required: true,
-            minlength: 6
+            minlength: 8
         },
 
         rol: {

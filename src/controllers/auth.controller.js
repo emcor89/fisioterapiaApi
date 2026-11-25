@@ -236,3 +236,85 @@ export const login = async (req, res, next) => {
 };
 
 
+// Cambiar contraseña del usuario autenticado
+export const changePassword = async (req, res, next) => {
+    try {
+        const {
+            passwordActual,
+            nuevaPassword
+        } = req.body || {};
+
+        // Verificar campos obligatorios
+        if (
+            typeof passwordActual !== "string" ||
+            !passwordActual.trim() ||
+            typeof nuevaPassword !== "string" ||
+            !nuevaPassword.trim()
+        ) {
+            return res.status(400).json({
+                message: "La contraseña actual y la nueva contraseña son obligatorias"
+            });
+        }
+
+        // Buscar usuario autenticado
+        const usuario = await User.findById(req.usuario.id);
+
+        if (!usuario) {
+            return res.status(404).json({
+                message: "Usuario no encontrado"
+            });
+        }
+
+        // Verificar contraseña actual
+        const passwordCorrecta = await bcrypt.compare(
+            passwordActual,
+            usuario.password
+        );
+
+        if (!passwordCorrecta) {
+            return res.status(401).json({
+                message: "La contraseña actual es incorrecta"
+            });
+        }
+
+        // Validar nueva contraseña
+        if (nuevaPassword.trim().length < 8) {
+            return res.status(400).json({
+                message: "La nueva contraseña debe tener al menos 8 caracteres"
+            });
+        }
+
+        if (!/(?=.*[A-Za-z])(?=.*\d)/.test(nuevaPassword)) {
+            return res.status(400).json({
+                message: "La nueva contraseña debe contener al menos una letra y un número"
+            });
+        }
+
+        // Evitar reutilizar la contraseña actual
+        const mismaPassword = await bcrypt.compare(
+            nuevaPassword,
+            usuario.password
+        );
+
+        if (mismaPassword) {
+            return res.status(400).json({
+                message: "La nueva contraseña debe ser diferente a la actual"
+            });
+        }
+
+        // Encriptar y guardar nueva contraseña
+        usuario.password = await bcrypt.hash(nuevaPassword, 10);
+
+        await usuario.save();
+
+        res.json({
+            message: "Contraseña actualizada correctamente"
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+

@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
 
@@ -28,6 +29,22 @@ const authMiddleware = (req, res, next) => {
             token,
             process.env.JWT_SECRET
         );
+
+        // Buscar usuario en MongoDB
+        const usuario = await User.findById(decoded.id);
+
+        if (!usuario) {
+            return res.status(401).json({
+                message: "Usuario no encontrado"
+            });
+        }
+
+        // Comprobar versión del token
+        if (decoded.tokenVersion !== usuario.tokenVersion) {
+            return res.status(401).json({
+                message: "La sesión ha expirado. Inicia sesión nuevamente"
+            });
+        }
 
         req.usuario = decoded;
 

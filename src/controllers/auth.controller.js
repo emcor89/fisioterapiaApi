@@ -1,6 +1,8 @@
 import bcrypt from "bcrypt";
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { sendEmail } from "../services/email.service.js";
 
 export const register = async (req, res, next) => {
     try {
@@ -211,7 +213,8 @@ export const login = async (req, res, next) => {
         const token = jwt.sign(
             {
                 id: usuario._id,
-                rol: usuario.rol
+                rol: usuario.rol,
+                tokenVersion: usuario.tokenVersion
             },
             process.env.JWT_SECRET,
             {
@@ -305,6 +308,9 @@ export const changePassword = async (req, res, next) => {
         // Encriptar y guardar nueva contraseña
         usuario.password = await bcrypt.hash(nuevaPassword, 10);
 
+        // Invalidar sesiones anteriores
+        usuario.tokenVersion += 1;
+
         await usuario.save();
 
         res.json({
@@ -316,5 +322,172 @@ export const changePassword = async (req, res, next) => {
     }
 };
 
+// Solicitar recuperación de contraseña
+export const forgotPassword = async (req, res, next) => {
+    try {
+        const { correo } = req.body || {};
 
+        if (typeof correo !== "string" || !correo.trim()) {
+            return res.status(400).json({
+                message: "El correo electrónico es obligatorio"
+            });
+        }
+
+        const correoLimpio = correo.trim().toLowerCase();
+
+        const usuario = await User.findOne({
+            correo: correoLimpio
+        });
+
+        // Respuesta genérica para no revelar si el correo existe
+        if (!usuario) {
+            return res.json({
+                message: "Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña"
+            });
+        }
+
+        // Generar token seguro
+        const resetToken = crypto.randomBytes(32).toString("hex");
+
+        // Guardar únicamente el hash del token
+        usuario.resetPasswordToken = crypto
+            .createHash("sha256")
+            .update(resetToken)
+            .digest("hex");
+
+        // El token tendrá una validez de 15 minutos
+        usuario.resetPasswordExpires = Date.now() + 15 * 60 * 1000;
+
+        await usuario.save();
+
+        // Construir enlace de recuperación
+        const resetUrl = `${process.env.FRONTEND_URL}/restablecer-password?token=${resetToken}`;
+
+        // Enviar correo de recuperación
+        try {
+            await sendEmail({
+                to: usuario.correo,
+                subject: "Recuperación de contraseña - Fisioterapia",
+                html: `
+                    <h2>Recuperación de contraseña</h2>
+
+                    <p>Hola ${usuario.nombre},</p>
+
+                    <p>Hemos recibido una solicitud para restablecer tu contraseña.</p>
+
+                    <p>Haz clic en el siguiente enlace:</p>
+
+                    <a href="${resetUrl}">
+                        Restablecer mi contraseña
+                    </a>
+
+                    <p>Este enlace expirará en 15 minutos.</p>
+
+                    <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
+                `
+            });
+
+        } catch (emailError) {
+            // Eliminar el token si falla el envío
+            usuario.resetPasswordToken = undefined;
+            usuario.resetPasswordExpires = undefined;
+
+            await usuario.save();
+
+            throw emailError;
+        }
+
+        res.json({
+            message: "Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña"
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+// Restablecer contraseña mediante token
+export const resetPassword = async (req, res, next) => {
+    try {
+        const {
+            token,
+            nuevaPassword
+        } = req.body || {};
+
+        // Verificar campos obligatorios
+        if (
+            typeof token !== "string" ||
+            !token.trim() ||
+            typeof nuevaPassword !== "string" ||
+            !nuevaPassword.trim()
+        ) {
+            return res.status(400).json({
+                message: "El token y la nueva contraseña son obligatorios"
+            });
+        }
+
+        // Validar longitud de contraseña
+        if (nuevaPassword.trim().length < 8) {
+            return res.status(400).json({
+                message: "La nueva contraseña debe tener al menos 8 caracteres"
+            });
+        }
+
+        // Validar que contenga letras y números
+        if (!/(?=.*[A-Za-z])(?=.*\d)/.test(nuevaPassword)) {
+            return res.status(400).json({
+                message: "La nueva contraseña debe contener al menos una letra y un número"
+            });
+        }
+
+        // Generar hash del token recibido
+        const resetTokenHash = crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex");
+
+        // Buscar usuario con token válido y no expirado
+        const usuario = await User.findOne({
+            resetPasswordToken: resetTokenHash,
+            resetPasswordExpires: { $gt: Date.now() }
+        }).select("+resetPasswordToken +resetPasswordExpires");
+
+        if (!usuario) {
+            return res.status(400).json({
+                message: "El token es inválido o ha expirado"
+            });
+        }
+
+        // Evitar reutilizar la contraseña actual
+        const mismaPassword = await bcrypt.compare(
+            nuevaPassword,
+            usuario.password
+        );
+
+        if (mismaPassword) {
+            return res.status(400).json({
+                message: "La nueva contraseña debe ser diferente a la actual"
+            });
+        }
+
+        // Guardar nueva contraseña cifrada
+        usuario.password = await bcrypt.hash(nuevaPassword, 10);
+
+        // Invalidar sesiones anteriores
+        usuario.tokenVersion += 1;
+
+        // Invalidar token después de utilizarlo
+        usuario.resetPasswordToken = undefined;
+        usuario.resetPasswordExpires = undefined;
+
+        await usuario.save();
+
+        res.json({
+            message: "Contraseña restablecida correctamente"
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
 

@@ -42,6 +42,21 @@ const userSchema = new mongoose.Schema(
             minlength: 8
         },
 
+        tokenVersion: {
+            type: Number,
+            default: 0
+        },
+
+        resetPasswordToken: {
+            type: String,
+            select: false
+        },
+
+        resetPasswordExpires: {
+            type: Date,
+            select: false
+        },
+
         rol: {
             type: String,
             enum: ["paciente", "fisioterapeuta", "admin"],
